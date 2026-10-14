@@ -50,11 +50,11 @@ here are set just inside a 50K account's limits - check your account's numbers a
 
 ## Install on Windows (for a friend rebuilding this with Claude)
 
-1. Install Python 3.10+ from python.org (tick **Add python.exe to PATH**) and Git.
-2. `git clone https://github.com/lincolnmcrow/tradingbot.git` then `cd tradingbot`
-3. `pip install -r requirements.txt`
-4. Double-click `start.bat`. The page opens at http://127.0.0.1:8787 (use 127.0.0.1, not localhost).
-5. Setup card: enter your own TopstepX username + API key (TopstepX > Settings > API Access). These go to `.secrets.json`, which is git-ignored. Never commit it.
-6. Start in **Paper** mode. Go Live only on a Practice account first (you must type LIVE).
+1. Download the repo (green **Code** button > **Download ZIP**, then unzip) or `git clone https://github.com/lincolnmcrow/tradingbot.git`.
+2. Double-click `start.bat`. First run it installs Python (via winget, built into Windows 10/11) and asks you to close the window and double-click again; second run installs the packages and opens the page at http://127.0.0.1:8787 (use 127.0.0.1, not localhost).
+3. Setup card: enter your own TopstepX username + API key (TopstepX > Settings > API Access). These go to `.secrets.json`, which is git-ignored. Never commit it.
+4. Start in **Paper** mode. Go Live only on a Practice account first (you must type LIVE).
+
+If winget is missing, install Python 3.10+ from python.org (tick **Add python.exe to PATH**) and run `start.bat` again.
 
 Or open the folder in Claude Code and say: "Read CLAUDE.md and get this bot running on my Windows PC."
