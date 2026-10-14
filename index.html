@@ -1,0 +1,710 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Champion Bot</title>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  :root { --bg:#f4f5f7; --card:#fff; --soft:#f7f8fa; --ink:#14171c; --muted:#6b7380; --line:#e6e8ec; --accent:#2563eb;
+          --good:#15803d; --bad:#c42121; --warn:#b45309; --shadow:0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.06); }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0c0e12; --card:#15181e; --soft:#1b1f26; --ink:#e9ebee; --muted:#8e97a3;
+          --line:#262b33; --accent:#60a5fa; --good:#4ade80; --bad:#f87171; --warn:#fbbf24; --shadow:none; } }
+  * { box-sizing:border-box; }
+  html { scroll-behavior:smooth; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.5 -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+         font-variant-numeric:tabular-nums; -webkit-font-smoothing:antialiased; }
+  main { max-width:1200px; margin:0 auto; padding:20px 20px 48px; }
+
+  /* top bar: the numbers you glance at, always visible */
+  .top { position:sticky; top:0; z-index:20; background:color-mix(in srgb, var(--bg) 82%, transparent);
+         backdrop-filter:saturate(1.6) blur(12px); -webkit-backdrop-filter:saturate(1.6) blur(12px); border-bottom:1px solid var(--line); }
+  .top-in { max-width:1200px; margin:0 auto; padding:12px 20px; display:flex; align-items:center; gap:22px; flex-wrap:wrap; }
+  .brand { font-weight:700; font-size:16px; letter-spacing:-.01em; margin-right:auto; display:flex; align-items:center; gap:10px; }
+  .stat { display:flex; flex-direction:column; line-height:1.15; }
+  .stat small { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.05em; }
+  .stat b { font-size:18px; font-weight:650; letter-spacing:-.01em; }
+  .stat .clock { color:var(--muted); font-size:11px; font-weight:400; }
+
+  h1 { font-size:20px; margin:0; }
+  h2 { font-size:13px; font-weight:650; margin:0 0 14px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .hnote { color:var(--muted); font-weight:400; font-size:12px; }
+  .section { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.06em; font-weight:600; margin:30px 2px 12px; }
+  .sub, .note { color:var(--muted); font-size:12.5px; line-height:1.55; margin:14px 0 0; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px 20px; box-shadow:var(--shadow); min-width:0; }
+  .full { grid-column:1 / -1; }
+  .scroll { max-height:300px; overflow:auto; }
+
+  label { display:block; color:var(--muted); font-size:12px; margin:12px 0 5px; }
+  label.check { display:flex; gap:9px; align-items:center; color:var(--ink); font-size:13px; margin:12px 0 0; cursor:pointer; }
+  label.check input { width:auto; margin:0; accent-color:var(--accent); }
+  input, select { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:var(--soft);
+          color:var(--ink); font:inherit; transition:border-color .15s, box-shadow .15s; }
+  input:focus, select:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+  .row { display:flex; gap:12px; } .row > * { flex:1; min-width:0; }
+
+  button { border:1px solid var(--line); background:var(--soft); color:var(--ink); border-radius:8px; padding:8px 14px;
+          font:inherit; font-weight:500; cursor:pointer; margin:14px 8px 0 0; transition:background .15s, border-color .15s, transform .08s, filter .15s; }
+  button:hover { border-color:var(--muted); }
+  button:active { transform:scale(.97); }
+  button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  button.sm { margin:0 6px 0 0; padding:4px 10px; font-size:12.5px; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.danger { color:var(--bad); }
+  button.buy, button.sell { color:#fff; min-width:110px; font-weight:650; padding:10px 18px; }
+  button.buy { background:var(--good); border-color:var(--good); } button.sell { background:var(--bad); border-color:var(--bad); }
+  button.primary:hover, button.buy:hover, button.sell:hover { filter:brightness(1.08); }
+  @media (prefers-color-scheme: dark) { button.buy, button.sell, button.primary { color:#0c0e12; } }
+  a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:underline; }
+
+  .kv { display:grid; grid-template-columns:max-content 1fr; gap:8px 18px; align-items:baseline; }
+  .kv span:nth-child(odd) { color:var(--muted); font-size:13px; }
+  .pill { display:inline-block; padding:2px 10px; border-radius:99px; font-size:11.5px; font-weight:600; border:1px solid currentColor;
+          letter-spacing:.02em; background:color-mix(in srgb, currentColor 10%, transparent); }
+  .good { color:var(--good); } .bad { color:var(--bad); } .warn { color:var(--warn); } .muted { color:var(--muted); }
+  table { width:100%; border-collapse:collapse; }
+  td, th { text-align:left; padding:8px 8px; border-bottom:1px solid var(--line); font-size:13px; }
+  td[colspan] { color:var(--muted); text-align:center; padding:16px 8px; }
+  tbody tr:last-child td { border-bottom:none; }
+  tbody tr:hover td { background:var(--soft); }
+  td button { white-space:nowrap; }
+  th { color:var(--muted); font-weight:500; font-size:11.5px; text-transform:uppercase; letter-spacing:.04em;
+       position:sticky; top:0; background:var(--card); }
+  pre { background:var(--soft); border:1px solid var(--line); border-radius:10px; padding:12px; height:280px; overflow:auto;
+        font:12px/1.6 ui-monospace, Menlo, monospace; margin:0; white-space:pre-wrap; }
+  #msg { min-height:20px; margin-top:10px; font-size:13px; transition:opacity .3s; }
+  details.card > summary { cursor:pointer; font-weight:650; font-size:13px; list-style:none; display:flex; align-items:center; gap:8px; }
+  details.card > summary::before { content:'▸'; color:var(--muted); transition:transform .15s; }
+  details.card[open] > summary::before { transform:rotate(90deg); }
+  details.card[open] > summary { margin-bottom:6px; }
+  .piece { display:grid; grid-template-columns:auto 1fr auto; gap:2px 10px; align-items:start; padding:9px 0; border-bottom:1px solid var(--line); cursor:pointer; }
+  .piece:last-child { border-bottom:none; }
+  .piece input { width:auto; margin:3px 0 0; accent-color:var(--accent); }
+  .piece b { font-weight:600; } .piece small { grid-column:2 / 4; color:var(--muted); font-size:12px; line-height:1.45; }
+  .piece .bt { font-size:12px; color:var(--muted); white-space:nowrap; }
+  .bar { height:6px; background:var(--line); border-radius:3px; margin-top:6px; overflow:hidden; }
+  .bar > div { height:6px; background:var(--good); transition:width .4s; }
+  @media (max-width:640px) { .grid { grid-template-columns:1fr; } .row { flex-wrap:wrap; } .top-in { gap:14px; } }
+</style>
+</head>
+<body>
+<header class="top"><div class="top-in">
+  <div class="brand">Champion Bot <span id="t_state" class="pill">-</span> <span id="t_mode" class="pill">-</span></div>
+  <div class="stat"><small>NQ price</small><b id="livePrice">-</b><span id="liveClock" class="clock"></span></div>
+  <div class="stat"><small>Position</small><b id="t_pos">-</b></div>
+  <div class="stat"><small>Today</small><b id="t_today">-</b></div>
+  <div class="stat"><small>Since start</small><b id="t_total">-</b></div>
+</div></header>
+<main>
+  <div class="grid">
+    <section class="card">
+      <h2>Status</h2>
+      <div class="kv" id="status"></div>
+      <button class="primary" onclick="start()">Start</button>
+      <button onclick="post('/api/stop')">Stop &amp; flatten</button>
+      <button class="danger" onclick="post('/api/flatten')">Flatten now</button>
+      <label class="check"><input id="sound" type="checkbox" onchange="soundToggle()"> Sound alerts</label>
+      <div id="liveConfirm" style="display:none"><label>Live mode sends real orders. Type LIVE to confirm</label><input id="confirm" placeholder="LIVE"></div>
+      <div id="msg"></div>
+    </section>
+
+    <section class="card">
+      <h2>Manual trade <span id="m_mode" class="pill"></span></h2>
+      <div class="row">
+        <div><label>Stop (points)</label><input id="m_stop" type="number" min="1" step="0.25" value="20"></div>
+        <div><label title="blank = no target">Target (points)</label><input id="m_target" type="number" min="0" step="0.25" value="40"></div>
+        <div><label>Contracts</label><input id="m_qty" type="number" min="1" step="1" value="1"></div>
+      </div>
+      <div style="margin-top:10px">
+        <button class="sm" onclick="preset(10,20)">10 / 20</button>
+        <button class="sm" onclick="preset(20,40)">20 / 40</button>
+        <button class="sm" onclick="preset(30,60)">30 / 60</button>
+        <button class="sm" onclick="preset(50,100)">50 / 100</button>
+      </div>
+      <div>
+        <button class="buy" onclick="manual('buy')">Buy</button>
+        <button class="sell" onclick="manual('sell')">Sell</button>
+      </div>
+      <div>
+        <button onclick="post('/api/close_manual')">Close manual trades</button>
+        <button onclick="post('/api/breakeven')">Stop to break even</button>
+      </div>
+      <details style="margin-top:14px">
+        <summary class="muted" style="cursor:pointer;font-size:13px">More options: trail, scale out, override, click-to-trade</summary>
+        <div class="row">
+          <div><label>Trail (pts, 0 = off)</label><input id="m_trail" type="number" min="0" step="0.25" value="0"></div>
+          <div><label>Trail starts after (pts up)</label><input id="m_arm" type="number" min="0" step="0.25" value="0"></div>
+        </div>
+        <div class="row" style="align-items:end">
+          <label class="check" style="margin-bottom:10px"><input id="m_scale" type="checkbox"> Scale out: half at Target, half at Target 2</label>
+          <div><label>Target 2 (pts)</label><input id="m_target2" type="number" min="0" step="0.25" value="80"></div>
+        </div>
+        <label class="check"><input id="m_override" type="checkbox"> Override: trade any time, and don't auto-close at 15:55</label>
+        <label class="check"><input id="m_click" type="checkbox"> Click the chart to place a limit / stop order at that price</label>
+        <p class="note">Market order; the stop and target rest at Topstep. Manual trades close at 15:55 with the bot and count toward the risk stops. Allowed 08:00-15:50 ET while the bot is running.</p>
+      </details>
+    </section>
+
+    <section class="card">
+      <h2>Open trades</h2>
+      <table><thead><tr><th>Piece</th><th>Side</th><th>Entry</th><th>Stop</th><th>Target</th></tr></thead><tbody id="legs"></tbody></table>
+      <h2 style="margin-top:20px">Waiting orders</h2>
+      <table><thead><tr><th>Piece</th><th>Side</th><th>Price</th></tr></thead><tbody id="pend"></tbody></table>
+      <h2 style="margin-top:20px">Today's plan <span id="planDay" class="hnote"></span></h2>
+      <table><thead><tr><th>Piece</th><th></th><th>Why</th></tr></thead><tbody id="plan"></tbody></table>
+    </section>
+
+    <section class="card full">
+      <h2>NQ chart <span id="chartNote" class="hnote"></span></h2>
+      <div style="margin:-4px 0 10px">
+        <button id="tf1" class="sm" onclick="setTf(1)">1m</button>
+        <button id="tf5" class="sm" onclick="setTf(5)">5m</button>
+        <button id="tf15" class="sm" onclick="setTf(15)">15m</button>
+      </div>
+      <div style="position:relative">
+        <div id="chart" style="height:460px"></div>
+        <div id="clickPanel" style="display:none;position:absolute;left:12px;top:12px;z-index:5;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.18)"></div>
+      </div>
+      <p class="note">Arrows = your fills · grey lines = prior day high / low, overnight high / low, 09:30 open, opening range (09:30-09:45) · blue line = VWAP from 09:30 · bottom bars = volume · POC / VAH / VAL = today's volume profile.</p>
+    </section>
+  </div>
+
+  <div class="section">Account &amp; safety</div>
+  <div class="grid">
+    <section class="card">
+      <h2>Topstep account</h2>
+      <div class="kv" id="acct"></div>
+      <div id="acctWarn"></div>
+      <details style="margin-top:14px">
+        <summary class="muted" style="cursor:pointer;font-size:13px">Account rules</summary>
+        <div class="row">
+          <div><label>Starting balance ($)</label><input id="acct_start" type="number"></div>
+          <div><label>Profit target ($)</label><input id="profit_target" type="number"></div>
+        </div>
+        <div class="row">
+          <div><label>Max loss limit ($)</label><input id="max_loss" type="number"></div>
+          <div><label>Daily loss limit ($, 0 = none)</label><input id="daily_limit" type="number"></div>
+        </div>
+        <button onclick="saveRules()">Save account rules</button>
+        <p class="note">Enter your account's numbers from Topstep. Live mode reads the real balance every 30 s; paper mode uses the starting balance plus the bot's result. The max loss limit trails your best end-of-day balance and stops at the starting balance.</p>
+      </details>
+    </section>
+
+    <section class="card">
+      <h2>Bot health</h2>
+      <div class="kv" id="health"></div>
+      <div id="healthWarn"></div>
+    </section>
+
+    <section class="card">
+      <h2>Trading limits &amp; news pause</h2>
+      <div class="row">
+        <div><label>Max manual trades / day (0 = none)</label><input id="manual_max_per_day" type="number" min="0" step="1"></div>
+        <div><label>Cool-down after a loss (min)</label><input id="manual_cooldown_min" type="number" min="0" step="1"></div>
+      </div>
+      <label class="check"><input id="news_pause" type="checkbox"> Pause new trades around high-impact US news</label>
+      <div class="row">
+        <div><label>Minutes before</label><input id="news_before_min" type="number" min="0" step="1"></div>
+        <div><label>Minutes after</label><input id="news_after_min" type="number" min="0" step="1"></div>
+      </div>
+      <button onclick="savePrefs()">Save limits</button>
+      <div id="pauseNow" style="margin-top:8px"></div>
+      <p class="note">Only new entries are paused or limited; open trades keep their stops and targets. Saved instantly, even while the bot runs.</p>
+    </section>
+
+    <section class="card">
+      <h2>All accounts <span id="acctsAt" class="hnote"></span></h2>
+      <div class="scroll">
+        <table><thead><tr><th>Account</th><th>Balance</th><th>Today</th><th>Rules</th><th></th></tr></thead><tbody id="accts"></tbody></table>
+      </div>
+      <p class="note">Every tradable account on your login, refreshed each minute. Switching the bot's account needs the bot stopped.</p>
+    </section>
+
+    <section class="card">
+      <h2>News calendar <span class="hnote">US releases this week, New York time</span></h2>
+      <div id="newsErr" class="warn"></div>
+      <div class="scroll">
+        <table><thead><tr><th>When</th><th>Release</th><th>Impact</th><th>Forecast</th><th>Previous</th></tr></thead><tbody id="news"></tbody></table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Live vs backtest <button class="sm" onclick="post('/api/check_day')">Run check for today</button></h2>
+      <div id="checkSum" style="font-size:13px;margin-bottom:8px"></div>
+      <div class="scroll">
+        <table><thead><tr><th>Piece</th><th>Backtest</th><th>Bot</th><th>Same?</th><th>Fill cost</th></tr></thead><tbody id="check"></tbody></table>
+      </div>
+      <p class="note">Runs automatically at 16:05 ET and compares today's bot trades with the backtest. Fill cost = points lost (or gained) to real fills. Manual trades not included.</p>
+    </section>
+  </div>
+
+  <div class="section">Results</div>
+  <div class="grid">
+    <section class="card full">
+      <h2>Trade history <span id="histMode" class="pill"></span>
+        <a href="/api/export?what=trades" style="margin-left:auto;font-size:13px;font-weight:400">Download trades (CSV)</a>
+        <a href="/api/export?what=fills" style="font-size:13px;font-weight:400">Download fills (CSV)</a></h2>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px">
+        <div class="kv" id="statsToday"></div>
+        <div class="kv" id="statsAll"></div>
+      </div>
+      <div id="equity" style="height:200px;margin-top:18px"></div>
+      <h2 style="margin-top:22px">Daily results calendar</h2>
+      <div id="heat" style="display:flex;gap:22px;flex-wrap:wrap;font-size:11px"></div>
+      <h2 style="margin-top:22px">By piece vs the backtest <span class="hnote">points per trade, after costs</span></h2>
+      <div style="overflow-x:auto"><table><thead><tr><th>Piece</th><th>Trades</th><th>Win %</th><th>$</th><th>Pts / trade</th><th>Backtest pts / trade</th><th>Backtest win %</th></tr></thead><tbody id="pieces"></tbody></table></div>
+      <h2 style="margin-top:22px">Daily reports <button class="sm" onclick="post('/api/report_now').then(refreshReports)">Make today's report now</button></h2>
+      <div id="reports" style="font-size:13px"></div>
+      <div class="scroll" style="max-height:340px;margin-top:14px;overflow-x:auto">
+        <table><thead><tr><th>Closed</th><th>Piece</th><th>Side</th><th>Qty</th><th>Entry</th><th>Exit</th><th>How</th><th>Pts</th><th>$</th><th>Note</th><th>Chart</th></tr></thead><tbody id="hist"></tbody></table>
+      </div>
+    </section>
+  </div>
+
+  <div class="section">Setup</div>
+  <div class="grid">
+    <details class="card">
+      <summary>Topstep login</summary>
+      <label>Topstep username</label><input id="username" autocomplete="off">
+      <label>API key (TopstepX → Settings → API Access)</label><input id="api_key" type="password" autocomplete="off">
+      <button onclick="saveCreds()">Save login</button>
+      <button onclick="post('/api/check')">Test connection</button>
+      <label>Account</label><select id="account_id"></select>
+    </details>
+
+    <details class="card">
+      <summary>Bot settings</summary>
+      <div class="row">
+        <div><label>Contract</label><select id="contract"><option value="MNQ">MNQ micro ($2/pt)</option><option value="NQ">NQ mini ($20/pt)</option></select></div>
+        <div><label>Contracts per piece</label><input id="qty" type="number" min="1" step="1"></div>
+      </div>
+      <label>Pieces to trade <span class="muted">(tick to turn on; stop the bot first, then Save settings)</span></label>
+      <div style="margin:2px 0 6px">
+        <button class="sm" onclick="pickPieces('all')">All 8</button>
+        <button class="sm" onclick="pickPieces('champ')">Champion 5</button>
+        <button class="sm" onclick="pickPieces('nothu')">All but Thursday</button>
+      </div>
+      <div id="piecesBox"></div>
+      <label>Mode</label>
+      <select id="mode"><option value="paper">Paper - live prices, simulated fills, no orders sent</option><option value="live">Live - real orders on the selected account</option></select>
+      <div class="row">
+        <div><label>Daily loss stop ($)</label><input id="daily_loss_stop" type="number"></div>
+        <div><label>Drawdown stop ($)</label><input id="max_drawdown_stop" type="number"></div>
+        <div><label>Max contracts held</label><input id="max_contracts" type="number" min="1"></div>
+      </div>
+      <button onclick="saveSettings()">Save settings</button>
+    </details>
+
+    <details class="card full" open>
+      <summary>Log</summary>
+      <pre id="log"></pre>
+    </details>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+// el.html = '...' only touches the page when the content really changed: no flicker, open dropdowns stay open
+Object.defineProperty(Element.prototype, 'html', { set(v) { if (this._html !== v) { this._html = v; this.innerHTML = v; } } });
+const FIELDS = ['contract','qty','mode','daily_loss_stop','max_drawdown_stop','max_contracts'];
+const PIECES = [
+  ['Monday long', 'Champion', 'Buy Monday 09:30 if the last 5 sessions closed up. 1.5% stop, out 15:55.'],
+  ['Turn of Month', 'Champion', 'Buy 09:30 on the first 3 sessions of the month if last month closed up. 1% stop.'],
+  ['Small Dip', 'Champion', 'First 3 sessions: if the 09:30-09:44 dip is small, buy 09:50. Target +0.5%, stop -0.25%.'],
+  ['Opening Drive', 'Champion', 'Big 09:00-10:00 move: trade that way at 10:00, stop past the first-hour extreme, trailing stop.'],
+  ['Month-end short', 'Champion', 'Last 2 sessions of an up month: short 09:30, 1% stop, out 15:55.'],
+  ['Thursday short', 'Add-on', 'Short every Thursday 09:30, 1% stop. Adds profit but nearly doubles the worst drawdown.'],
+  ['ORB retest', 'Add-on', 'Uptrend days: first 10-min close above the 09:30-10:00 range, buy the 2-min 20 EMA by 13:00. Stop 0.25 x ATR, 2R target.'],
+  ['First FVG', 'Add-on', 'First 1-minute fair value gap 09:30-10:30: limit at its middle, 2R target.']];
+const RETIRED = ['SD fade', 'AMD AM', 'AMD PM'];   // removed from the page, always left off
+const pid = n => 'pc_' + n.replace(/[^A-Za-z]/g, '');
+let piecesDrawn = false;
+function drawPieces(bt, off) {
+  $('piecesBox').innerHTML = PIECES.map(([n, grp, rule]) => {
+    const b = (bt || {})[n], st = b ? `${b.pts > 0 ? '+' : ''}${b.pts} pts/trade${b.win != null ? ' · ' + b.win + '% win' : ''}` : '';
+    return `<label class="piece"><input type="checkbox" id="${pid(n)}" ${off.includes(n) ? '' : 'checked'}><b>${n} <span class="muted" style="font-weight:400">· ${grp}</span></b><span class="bt" title="backtest 2023-10 to 2026-10, per trade after costs">${st}</span><small>${rule}</small></label>`;
+  }).join('');
+  piecesDrawn = true;
+}
+function pickPieces(which) {
+  PIECES.forEach(([n, grp]) => $(pid(n)).checked = which === 'all' || (which === 'champ' ? grp === 'Champion' : n !== 'Thursday short'));
+}
+const offList = () => PIECES.map(p => p[0]).filter(n => !$(pid(n)).checked).concat(RETIRED);
+let loaded = false;
+
+function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function money(v) { if (v == null) return '-'; const s = v < 0 ? '-' : ''; return `${s}$${Math.abs(v).toLocaleString('en-US', {maximumFractionDigits: 0})}`; }
+let sayT = 0;
+function say(text, cls) { const m = $('msg'); m.className = cls || ''; m.textContent = text; m.style.opacity = 1; clearTimeout(sayT); sayT = setTimeout(() => m.style.opacity = 0, 5000); }
+
+async function post(path, body = {}) {
+  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const d = await r.json().catch(() => ({}));
+  say(d.ok ? 'Done.' : (d.error || 'Failed'), d.ok ? 'good' : 'bad');
+  refresh();
+  return d;
+}
+function saveCreds() { post('/api/credentials', { username: $('username').value, api_key: $('api_key').value }); $('api_key').value = ''; }
+function saveSettings() {
+  const body = { extras: 'all', off: offList() }; FIELDS.forEach(k => body[k] = ['qty','daily_loss_stop','max_drawdown_stop','max_contracts'].includes(k) ? Number($(k).value) : $(k).value);
+  if (body.off.length === PIECES.length) { say('Turn on at least one piece.', 'bad'); return; }
+  const sel = $('account_id'); if (sel.value) { body.account_id = Number(sel.value); body.account_name = sel.options[sel.selectedIndex].text; }
+  post('/api/settings', body);
+}
+let lastMode = 'paper';
+function manual(side, kind = 'mkt', price = null) {
+  const stop = Number($('m_stop').value), target = Number($('m_target').value || 0), qty = Number($('m_qty').value || 1);
+  if (!(stop > 0)) { say('Set a stop in points first.', 'bad'); return; }
+  const override = $('m_override').checked, trail = Number($('m_trail').value || 0), arm = Number($('m_arm').value || 0);
+  const target2 = $('m_scale').checked ? Number($('m_target2').value || 0) : 0;
+  if (target2 && qty < 2) { say('Scale out needs 2 or more contracts.', 'bad'); return; }
+  const how = kind === 'mkt' ? 'at market' : `${kind === 'lmt' ? 'LIMIT' : 'STOP'} order at ${price}`;
+  const what = `${side.toUpperCase()} ${qty} ${$('contract').value} ${how}, stop ${stop} pts${target ? ', target ' + target + ' pts' : ''}${target2 ? ', half at ' + target2 + ' pts' : ''}${trail ? ', trail ' + trail + ' pts' : ''}${override ? ' (OVERRIDE: stays open past 15:55)' : ''}`;
+  if (lastMode === 'live' && !confirm(`LIVE ORDER: ${what}. Send it?`)) return;
+  post('/api/manual', { side, stop, target, override, qty, trail, arm, target2, kind, price });
+}
+const PREFS = ['manual_max_per_day', 'manual_cooldown_min', 'news_before_min', 'news_after_min'];
+function savePrefs() { const b = { news_pause: $('news_pause').checked }; PREFS.forEach(k => b[k] = Number($(k).value || 0)); post('/api/prefs', b); }
+function preset(stop, target) { $('m_stop').value = stop; $('m_target').value = target; }
+const RULES = ['acct_start', 'profit_target', 'max_loss', 'daily_limit'];
+function saveRules() { const b = {}; RULES.forEach(k => b[k] = Number($(k).value || 0)); post('/api/rules', b); }
+function start() { post('/api/start', { confirm: $('confirm').value.trim() }); }
+
+async function refresh() {
+  const s = await fetch('/api/status').then(r => r.json()).catch(() => null);
+  if (!s) { say('Lost contact with the bot - is app.py still running?', 'bad'); return; }
+  const cfg = s.settings, bot = s.bot, g = bot ? bot.guard : null;
+  lastMode = s.running ? s.mode : cfg.mode;
+  $('m_mode').textContent = lastMode === 'live' ? 'LIVE - real orders' : 'PAPER - simulated, nothing sent to Topstep';
+  $('m_mode').className = 'pill ' + (lastMode === 'live' ? 'bad' : 'warn');
+  const off = (cfg.off || []).concat(cfg.extras === 'none' ? PIECES.slice(5).map(p => p[0]) : cfg.extras === 'thu' ? PIECES.slice(6).map(p => p[0]) : []);
+  if (!loaded) { FIELDS.concat(RULES, PREFS).forEach(k => $(k).value = cfg[k]); drawPieces(s.backtest, off); $('news_pause').checked = !!cfg.news_pause;
+                 $('m_qty').value = cfg.qty; $('username').value = s.username || ''; loaded = true; }
+  $('pauseNow').html = g && g.paused ? `<span class="warn"><b>&#9208; New trades paused: ${esc(g.paused)}</b></span>` : '';
+  const hh = s.health;
+  $('health').html = hh ? [
+    ['Running for', hh.uptime_min < 120 ? `${hh.uptime_min} min` : `${(hh.uptime_min / 60).toFixed(1)} h`],
+    ['Last finished bar', hh.bar_age_s != null ? `${hh.bar_age_s} s ago` : '-'],
+    ['Last streamed price', hh.price_age_s != null ? `${hh.price_age_s} s ago` : '-'],
+    ['Stream reconnects', hh.stream_drops ?? '-'], ['API errors', hh.api_errors],
+    ['Mac sleeps noticed', hh.sleeps + (hh.last_sleep ? ` (last ${esc(hh.last_sleep)})` : '')]
+  ].map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join('') : '<span>Status</span><span>start the bot to see its health</span>';
+  $('healthWarn').html = hh && hh.warnings.length ? hh.warnings.map(w => `<p class="bad" style="margin:8px 0 0"><b>&#9888; ${esc(w)}</b></p>`).join('') : (hh ? '<p class="good" style="margin:8px 0 0">All good</p>' : '');
+  const ck = s.check, tr = t => t ? `${t.side} ${t.entry_time.slice(11, 16)} @ ${t.entry} &rarr; ${t.exit} (${t.pts} pts)` : '<span style="color:var(--muted)">no trade</span>';
+  $('checkSum').html = ck ? (ck.status === 'done' ? `${esc(ck.day)}: ${ck.matched} of ${ck.total} trades the same · backtest ${ck.bt_pts} pts · bot ${ck.live_pts} pts` : `${esc(ck.day)}: ${esc(ck.status)} ${esc(ck.error || '')}`) : 'No check yet.';
+  $('check').html = ck && ck.rows ? (ck.rows.length ? ck.rows.map(r => `<tr><td>${esc(r.piece)}</td><td>${tr(r.backtest)}</td><td>${tr(r.live)}</td><td>${r.match ? '<span class="good">&#10003;</span>' : '<span class="bad">&#10007;</span>'}</td><td class="${(r.slip_pts || 0) > 0 ? 'bad' : 'good'}">${r.slip_pts ?? '-'}</td></tr>`).join('') : '<tr><td colspan="5">neither the backtest nor the bot traded that day</td></tr>') : '';
+  const mark = { yes: '<span class="good">&#10003; trades</span>', no: '<span style="color:var(--muted)">&#10007; no</span>',
+                 wait: '<span class="warn">&#9203; later</span>', watch: '<span class="warn">watching</span>', off: '<span class="muted">off</span>' };
+  $('planDay').textContent = bot ? `session ${bot.session}` : '';
+  $('plan').html = bot && bot.plan.length ? bot.plan.map(p => `<tr><td>${esc(p.piece)}</td><td>${mark[p.status] || esc(p.status)}</td><td>${esc(p.why)}</td></tr>`).join('') : '<tr><td colspan="3">start the bot to see today\'s plan</td></tr>';
+  const ac = bot ? bot.account : null;
+  $('acct').html = ac ? [
+    ['Balance', `<b>${money(ac.balance)}</b>`],
+    ['Profit', `<span class="${ac.profit < 0 ? 'bad' : 'good'}">${money(ac.profit)}</span>` + (ac.target ? ` of ${money(ac.target)} target (${ac.target_pct}%)<div style="height:6px;background:var(--line);border-radius:3px;margin-top:4px"><div style="height:6px;border-radius:3px;background:var(--good);width:${Math.max(0, Math.min(100, ac.target_pct))}%"></div></div>` : '')],
+    ['Max loss floor', ac.floor != null ? `${money(ac.floor)} (room ${money(ac.room)})` : '-'],
+    ['Today', `<span class="${ac.day < 0 ? 'bad' : 'good'}">${money(ac.day)}</span>` + (ac.daily_limit ? ` of -${money(ac.daily_limit)} limit` : '')]
+  ].map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join('') : '<span>Balance</span><span>start the bot to track the account</span>';
+  $('acctWarn').html = ac && ac.warnings.length ? ac.warnings.map(w => `<p class="bad" style="margin:8px 0 0"><b>&#9888; ${esc(w)}</b></p>`).join('') : '';
+  $('api_key').placeholder = s.has_key ? 'saved - type a new key to replace it' : '';
+  const sel = $('account_id'), accts = s.accounts.length ? s.accounts : (cfg.account_id ? [{ id: cfg.account_id, name: cfg.account_name }] : []);
+  const keep = sel.value || cfg.account_id;
+  sel.html = accts.map(a => `<option value="${a.id}">${esc(a.name)}${a.balance != null ? ' - ' + money(a.balance) : ''}</option>`).join('');
+  if (keep) sel.value = keep;
+  $('liveConfirm').style.display = cfg.mode === 'live' && !s.running ? 'block' : 'none';
+  const pnl = (v) => v == null ? '-' : `<span class="${v < 0 ? 'bad' : 'good'}">${money(v)}</span>`;
+  $('t_state').textContent = s.status; $('t_state').className = 'pill ' + (s.error ? 'bad' : s.running ? 'good' : 'muted');
+  $('t_mode').textContent = s.mode === 'live' ? 'LIVE' : 'PAPER'; $('t_mode').className = 'pill ' + (s.mode === 'live' ? 'bad' : 'warn');
+  $('t_pos').html = bot ? `${bot.position} <span class="clock">${esc(cfg.contract)}</span>` : '-';
+  $('t_today').html = pnl(bot ? bot.open_pnl : null);
+  $('t_total').html = pnl(g ? g.pnl : null);
+  if (!lastTick && bot && bot.price != null) showTick({ price: bot.price, clock: bot.price_time || '' });
+  const rows = [
+    ...(s.error ? [['Error', `<span class="bad">${esc(s.error)}</span>`]] : []),
+    ['Account', esc(cfg.account_name || '-')],
+    ['Pieces', `${PIECES.length - off.length} of ${PIECES.length} on` + (off.length ? ` <span class="muted">(off: ${esc(off.join(', '))})</span>` : '')],
+    ['Live stream', s.stream ? `<span class="${s.stream.startsWith('live') ? 'good' : 'warn'}">${esc(s.stream)}</span>` : '-'],
+    ['Last finished bar', esc(bot ? `${bot.last_bar} @ ${bot.last_price}` : '-')],
+    ['Risk stops', g ? (g.killed ? '<span class="bad">drawdown stop hit</span>' : g.halted ? '<span class="warn">daily stop hit</span>' : '<span class="good">ok</span>') : '-']
+  ];
+  if (newsWarn) rows.unshift(['News', `<span class="bad"><b>&#9888; ${esc(newsWarn)}</b></span>`]);
+  $('status').html = rows.map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join('');
+  if (lastTick) showTick(lastTick);
+  $('legs').html = bot && bot.legs.length ? bot.legs.map(l => `<tr><td>${esc(l.name)}</td><td>${l.side}</td><td>${l.entry}</td><td>${l.stop}</td><td>${l.target ?? '-'}</td></tr>`).join('') : '<tr><td colspan="5">none</td></tr>';
+  $('pend').html = bot && bot.pending.length ? bot.pending.map(p => `<tr><td>${esc(p.name)}</td><td>${p.side}</td><td>${p.price}</td></tr>`).join('') : '<tr><td colspan="3">none</td></tr>';
+  const lg = $('log'), atEnd = lg.scrollTop + lg.clientHeight >= lg.scrollHeight - 5;
+  lg.textContent = s.logs.join('\n'); if (atEnd) lg.scrollTop = lg.scrollHeight;
+}
+refresh(); setInterval(refresh, 1000);
+
+// ---- NQ chart: 1-minute candles from the bot's own TopstepX feed, the forming candle updates every second
+let lastBarObj = null, pushedT = 0, volSeries = null, vwapSeries = null, vpLines = [], vpKey = '';
+let chart = null, candles = null, lastT = 0, priceLines = [], linesKey = '', tf = 1, tfDirty = true, pdLines = [], pdKey = '', markKey = '';
+function setTf(m) { tf = m; tfDirty = true; ['tf1', 'tf5', 'tf15'].forEach(id => $(id).className = id === 'tf' + m ? 'sm primary' : 'sm'); refreshChart(); }
+function agg(bars) {                                          // 1-minute bars -> tf-minute bars
+  if (tf === 1) return bars;
+  const out = [];
+  for (const b of bars) {
+    const t = Math.floor(b.time / (tf * 60)) * tf * 60, o = out[out.length - 1];
+    if (o && o.time === t) { o.high = Math.max(o.high, b.high); o.low = Math.min(o.low, b.low); o.close = b.close; }
+    else out.push({ time: t, open: b.open, high: b.high, low: b.low, close: b.close });
+  }
+  return out;
+}
+const etSec = s => Math.floor(Date.parse(s.replace(' ', 'T') + 'Z') / 1000);
+function css(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+function makeChart() {
+  if (!window.LightweightCharts) { $('chartNote').textContent = '(chart library did not load - check the internet connection)'; return; }
+  chart = LightweightCharts.createChart($('chart'), {
+    layout: { background: { color: 'transparent' }, textColor: css('--muted') },
+    grid: { vertLines: { color: css('--line') }, horzLines: { color: css('--line') } },
+    timeScale: { timeVisible: true, secondsVisible: false, borderColor: css('--line') },
+    rightPriceScale: { borderColor: css('--line') }, crosshair: { mode: 0 }, autoSize: true });
+  candles = chart.addCandlestickSeries({ upColor: css('--good'), downColor: css('--bad'), wickUpColor: css('--good'),
+    wickDownColor: css('--bad'), borderVisible: false, priceFormat: { type: 'price', precision: 2, minMove: 0.25 } });
+  volSeries = chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: '', lastValueVisible: false, priceLineVisible: false });
+  chart.priceScale('').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+  vwapSeries = chart.addLineSeries({ color: css('--accent'), lineWidth: 2, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false });
+  chart.subscribeClick(clickTrade);
+}
+async function refreshChart() {
+  if (!chart) makeChart();
+  if (!chart) return;
+  const d = await fetch('/api/chart').then(r => r.json()).catch(() => null);
+  if (!d || !d.bars.length) { $('chartNote').textContent = '(start the bot to see live candles, New York time)'; return; }
+  $('chartNote').textContent = '1-minute candles, New York time';
+  $('chartNote').textContent = `${tf}-minute candles, New York time`;
+  const bars = agg(d.bars);
+  if (tfDirty || !lastT || bars[bars.length - 1].time < lastT) { candles.setData(bars); tfDirty = false; markKey = ''; pushedT = bars[bars.length - 1].time; }   // first load, new timeframe, or the bot restarted
+  else bars.filter(b => b.time >= pushedT).forEach(b => { candles.update(b); pushedT = b.time; });   // never older than what the chart already has
+  lastT = bars[bars.length - 1].time; lastBarObj = { ...bars[bars.length - 1] }; liveBar = null;
+  const first = bars[0].time, mk = d.fills.filter(f => etSec(f.time) >= first).map(f => {
+    const buy = f.qty > 0, t = Math.floor(etSec(f.time) / (tf * 60)) * tf * 60;
+    return { time: t, position: buy ? 'belowBar' : 'aboveBar', color: buy ? css('--good') : css('--bad'),
+             shape: buy ? 'arrowUp' : 'arrowDown', text: `${f.tag} ${f.price}` };
+  }).sort((a, b) => a.time - b.time);
+  const mkKey = JSON.stringify(mk) + tf;
+  if (mkKey !== markKey) { candles.setMarkers(mk); markKey = mkKey; }
+  const pk = JSON.stringify(d.levels);
+  if (pk !== pdKey) {                                        // session levels: prior day, overnight, 09:30 open, opening range
+    pdLines.forEach(l => candles.removePriceLine(l)); pdLines = []; pdKey = pk;
+    (d.levels || []).forEach(l => pdLines.push(candles.createPriceLine({ price: l.price, color: css('--muted'), lineWidth: 1,
+      lineStyle: l.name.startsWith('OR') || l.name === '09:30 open' ? 3 : 1, title: l.name })));
+  }
+  newFills(d.fills);
+  drawVolume(d.bars, bars);
+  const key = JSON.stringify(d.lines);
+  if (key !== linesKey) {                                    // entry / stop / target lines for each open trade
+    priceLines.forEach(l => candles.removePriceLine(l)); priceLines = []; linesKey = key;
+    d.lines.forEach(l => {
+      priceLines.push(candles.createPriceLine({ price: l.entry, color: css('--accent'), lineWidth: 1, lineStyle: 0, title: /long|short/.test(l.name) ? l.name : `${l.name} ${l.side > 0 ? 'long' : 'short'}` }));
+      priceLines.push(candles.createPriceLine({ price: l.stop, color: css('--bad'), lineWidth: 1, lineStyle: 2, title: 'stop' }));
+      if (l.target != null) priceLines.push(candles.createPriceLine({ price: l.target, color: css('--good'), lineWidth: 1, lineStyle: 2, title: 'target' }));
+    });
+  }
+}
+setTf(1); setInterval(refreshChart, 1000);
+
+// ---- volume bars, VWAP from 09:30, today's volume profile (POC / value area)
+function drawVolume(raw, bars) {
+  if (!volSeries) return;
+  const vol = {}; raw.forEach(b => { const t = Math.floor(b.time / (tf * 60)) * tf * 60; vol[t] = (vol[t] || 0) + (b.volume || 0); });
+  volSeries.setData(bars.map(b => ({ time: b.time, value: vol[b.time] || 0, color: b.close >= b.open ? css('--good') + '55' : css('--bad') + '55' })));
+  const last = raw[raw.length - 1], day = new Date(last.time * 1000).toISOString().slice(0, 10);
+  const open = Date.parse(day + 'T09:30:00Z') / 1000, sessStart = Date.parse(day + 'T00:00:00Z') / 1000 - 6 * 3600;
+  let pv = 0, vv = 0; const pts = {};
+  raw.filter(b => b.time >= open).forEach(b => { const tp = (b.high + b.low + b.close) / 3; pv += tp * (b.volume || 0); vv += (b.volume || 0);
+    if (vv) pts[Math.floor(b.time / (tf * 60)) * tf * 60] = Math.round(pv / vv * 4) / 4; });
+  vwapSeries.setData(Object.keys(pts).map(Number).sort((a, b) => a - b).map(t => ({ time: t, value: pts[t] })));
+  const bins = {}; let tot = 0;                               // session volume by 5-point price level
+  raw.filter(b => b.time >= sessStart).forEach(b => { const k = Math.round((b.high + b.low + b.close) / 3 / 5) * 5; bins[k] = (bins[k] || 0) + (b.volume || 0); tot += (b.volume || 0); });
+  const keys = Object.keys(bins).map(Number).sort((a, b) => a - b);
+  if (!keys.length || !tot) return;
+  let poc = keys.reduce((a, b) => bins[b] > bins[a] ? b : a), lo = keys.indexOf(poc), hi = lo, acc = bins[poc];
+  while (acc < 0.7 * tot && (lo > 0 || hi < keys.length - 1)) {
+    const down = lo > 0 ? bins[keys[lo - 1]] : -1, up = hi < keys.length - 1 ? bins[keys[hi + 1]] : -1;
+    if (up >= down) acc += bins[keys[++hi]]; else acc += bins[keys[--lo]];
+  }
+  const lv = [['POC', poc], ['VAH', keys[hi]], ['VAL', keys[lo]]], key = JSON.stringify(lv);
+  if (key === vpKey) return;
+  vpLines.forEach(l => candles.removePriceLine(l)); vpKey = key;
+  vpLines = lv.map(([n, p]) => candles.createPriceLine({ price: p, color: css('--warn'), lineWidth: 1, lineStyle: n === 'POC' ? 0 : 2, title: n }));
+}
+
+// ---- click the chart to place a limit / stop order at that price
+function clickTrade(param) {
+  const panel = $('clickPanel');
+  if (!$('m_click').checked || !param.point) { panel.style.display = 'none'; return; }
+  const price = Math.round(candles.coordinateToPrice(param.point.y) * 4) / 4;
+  const mkt = lastTick ? lastTick.price : (lastBarObj ? lastBarObj.close : price);
+  const above = price > mkt;
+  const btn = (side, kind, label, cls) => `<button class="${cls}" style="margin:6px 6px 0 0;padding:5px 10px" onclick="$('clickPanel').style.display='none';manual('${side}','${kind}',${price})">${label}</button>`;
+  panel.html = `<b>${price.toFixed(2)}</b> <span style="color:var(--muted)">(market ${mkt.toFixed(2)})</span><br>` +
+    (above ? btn('buy', 'stop', 'Buy stop', 'buy') + btn('sell', 'lmt', 'Sell limit', 'sell') : btn('buy', 'lmt', 'Buy limit', 'buy') + btn('sell', 'stop', 'Sell stop', 'sell')) +
+    `<button style="margin:6px 0 0 0;padding:5px 10px" onclick="$('clickPanel').style.display='none'">Cancel</button>` +
+    `<div style="color:var(--muted);margin-top:6px">Uses the Manual trade box: contracts, stop, target(s), trail, override.</div>`;
+  panel.style.display = 'block';
+}
+
+// ---- daily results calendar (last 3 months)
+function drawHeat(daily) {
+  const days = Object.keys(daily); if (!days.length) { $('heat').html = '<span style="color:var(--muted)">no closed trades yet</span>'; return; }
+  const max = Math.max(...days.map(d => Math.abs(daily[d]))) || 1, now = new Date(), out = [];
+  for (let m = 2; m >= 0; m--) {
+    const first = new Date(Date.UTC(now.getFullYear(), now.getMonth() - m, 1)), month = first.getUTCMonth();
+    let html = `<div><div style="font-weight:600;margin-bottom:4px">${first.toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })}</div><table style="width:auto"><tr>${['M', 'T', 'W', 'T', 'F'].map(x => `<th style="padding:2px 6px">${x}</th>`).join('')}</tr><tr>`;
+    let col = 0;
+    for (let d = new Date(first); d.getUTCMonth() === month; d.setUTCDate(d.getUTCDate() + 1)) {
+      const wd = d.getUTCDay(); if (wd === 0 || wd === 6) continue;
+      if (col === 0) { for (let i = 1; i < wd; i++) html += '<td></td>'; col = wd - 1; }
+      const key = d.toISOString().slice(0, 10), v = daily[key];
+      const bg = v == null ? 'transparent' : (v >= 0 ? css('--good') : css('--bad'));
+      const op = v == null ? 1 : 0.25 + 0.75 * Math.abs(v) / max;
+      html += `<td title="${key}${v != null ? ': ' + money(v) : ''}" style="padding:0"><div style="width:26px;height:22px;border-radius:4px;margin:1px;display:flex;align-items:center;justify-content:center;background:${bg};opacity:${op};border:1px solid var(--line)">${d.getUTCDate()}</div></td>`;
+      if (++col === 5) { html += '</tr><tr>'; col = 0; }
+    }
+    out.push(html + '</tr></table></div>');
+  }
+  $('heat').html = out.join('');
+}
+
+// ---- trade history: saved fills -> trades, stats, equity curve
+let eqChart = null, eqLine = null;
+function statRows(t, title) {
+  return [[`<b>${title}</b>`, ''], ['Trades', t.trades], ['Win rate', t.win_rate != null ? t.win_rate + '%' : '-'],
+    ['Net', `<span class="${t.net < 0 ? 'bad' : 'good'}">${money(t.net)}</span>`], ['Avg win / loss', `${money(t.avg_win)} / ${money(t.avg_loss)}`],
+    ['Profit factor', t.profit_factor ?? '-'], ['Best / worst', `${money(t.best)} / ${money(t.worst)}`]]
+    .map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join('');
+}
+async function refreshHistory() {
+  const h = await fetch('/api/history').then(r => r.json()).catch(() => null);
+  if (!h) return;
+  $('histMode').textContent = h.mode === 'live' ? 'LIVE trades' : 'PAPER trades';
+  $('histMode').className = 'pill ' + (h.mode === 'live' ? 'bad' : 'warn');
+  $('statsToday').html = statRows(h.today, 'Today');
+  $('statsAll').html = statRows(h.all, 'All time');
+  $('hist').html = h.trades.length ? h.trades.map((t, i) => `<tr><td>${esc(t.exit_time)}</td><td>${esc(t.piece)}</td><td>${t.side}</td><td>${t.qty}</td><td>${t.entry}</td><td>${t.exit}</td><td>${esc(t.reason)}</td><td>${t.pts}</td><td class="${t.usd < 0 ? 'bad' : 'good'}">${money(t.usd)}</td><td><a href="#" onclick="editNote(${i});return false" style="color:var(--accent)">${t.note ? esc(t.note) : '+ note'}</a></td><td>${t.snapshot ? `<a href="/snapshots/${snapName(t.key)}.png" target="_blank" style="color:var(--accent)">view</a>` : ''}</td></tr>`).join('') : '<tr><td colspan="11">no closed trades yet</td></tr>';
+  histTrades = h.trades;
+  $('pieces').html = h.pieces.length ? h.pieces.map(p => `<tr><td>${esc(p.piece)}</td><td>${p.trades}</td><td>${p.win}</td><td class="${p.usd < 0 ? 'bad' : 'good'}">${money(p.usd)}</td><td class="${p.bt_pts != null && p.pts < p.bt_pts ? 'warn' : 'good'}">${p.pts}</td><td>${p.bt_pts ?? '-'}</td><td>${p.bt_win ?? '-'}</td></tr>`).join('') : '<tr><td colspan="7">no closed trades yet</td></tr>';
+  snapNewTrades(h.trades);
+  drawHeat(h.daily || {});
+  if (!window.LightweightCharts) return;
+  if (!eqChart) {
+    eqChart = LightweightCharts.createChart($('equity'), { layout: { background: { color: 'transparent' }, textColor: css('--muted') },
+      grid: { vertLines: { visible: false }, horzLines: { color: css('--line') } }, timeScale: { timeVisible: true, borderColor: css('--line') },
+      rightPriceScale: { borderColor: css('--line') }, autoSize: true });
+    eqLine = eqChart.addLineSeries({ color: css('--accent'), lineWidth: 2, priceFormat: { type: 'price', precision: 0, minMove: 1 } });
+  }
+  const pts = [];                                             // one point per second at most (chart needs rising times)
+  h.equity.forEach(e => { const t = etSec(e.time); if (pts.length && pts[pts.length - 1].time >= t) pts[pts.length - 1].value = e.value; else pts.push({ time: t, value: e.value }); });
+  eqLine.setData(pts);
+}
+refreshHistory(); setInterval(refreshHistory, 5000);
+
+// ---- live stream: every price the bot receives, pushed to the page as it happens
+let lastTick = null, liveBar = null;
+function showTick(p) {
+  const el = $('livePrice'); if (!el) return;
+  el.textContent = p.price.toLocaleString('en-US', { minimumFractionDigits: 2 });
+  $('liveClock').textContent = p.clock ? p.clock + ' ET' : '';
+}
+function tickChart(p) {
+  if (!candles || !lastT) return;
+  const t = Math.floor(p.t / (tf * 60)) * tf * 60;
+  if (!liveBar || t > liveBar.time) {
+    if (t < lastT) return;
+    liveBar = t === lastT && lastBarObj ? { ...lastBarObj } : { time: t, open: p.price, high: p.price, low: p.price, close: p.price };
+  }
+  if (t !== liveBar.time || t < pushedT) return;
+  liveBar.high = Math.max(liveBar.high, p.price); liveBar.low = Math.min(liveBar.low, p.price); liveBar.close = p.price;
+  try { candles.update(liveBar); pushedT = t; } catch (e) { /* the next chart refresh fixes it */ }
+}
+function openStream() {
+  const es = new EventSource('/api/stream');
+  es.onmessage = (m) => { const p = JSON.parse(m.data); lastTick = p; showTick(p); tickChart(p); };
+  es.onerror = () => { es.close(); setTimeout(openStream, 3000); };
+}
+openStream();
+
+// ---- news calendar
+let newsWarn = null;
+async function refreshNews() {
+  const n = await fetch('/api/news').then(r => r.json()).catch(() => null);
+  if (!n) return;
+  newsWarn = n.warning;
+  $('newsErr').textContent = n.error || '';
+  const up = n.rows.filter(r => r.minutes > -180);
+  $('news').html = up.length ? up.map(r => `<tr style="${r.day === n.today ? 'font-weight:600' : ''}"><td style="white-space:nowrap">${esc(r.time)}</td><td>${esc(r.title)}</td><td class="${r.impact === 'High' ? 'bad' : 'warn'}">${r.impact}</td><td>${esc(r.forecast)}</td><td>${esc(r.previous)}</td></tr>`).join('') : '<tr><td colspan="5">no US medium / high impact releases left this week</td></tr>';
+}
+refreshNews(); setInterval(refreshNews, 60000);
+
+// ---- sound alerts (browser sound; the box has to be ticked once per page load so the browser allows sound)
+let ac = null, seenFills = null, seenLog = null;
+function soundToggle() { if ($('sound').checked && !ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if ($('sound').checked) beep('entry'); }
+function tone(f, start, len, type = 'sine', vol = 0.15) {
+  const o = ac.createOscillator(), g = ac.createGain(); o.type = type; o.frequency.value = f;
+  g.gain.setValueAtTime(vol, ac.currentTime + start); g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + start + len);
+  o.connect(g).connect(ac.destination); o.start(ac.currentTime + start); o.stop(ac.currentTime + start + len);
+}
+function beep(kind) {
+  if (!ac || !$('sound').checked) return;
+  if (kind === 'entry') tone(880, 0, 0.08);
+  else if (kind === 'target') { tone(660, 0, 0.15); tone(990, 0.15, 0.25); }
+  else if (kind === 'stop') { tone(330, 0, 0.2); tone(220, 0.2, 0.3); }
+  else if (kind === 'alarm') for (let i = 0; i < 4; i++) tone(i % 2 ? 520 : 780, i * 0.22, 0.2, 'square', 0.12);
+}
+function newFills(fills) {
+  if (!fills) return;
+  if (seenFills === null) { seenFills = fills.length; return; }
+  fills.slice(seenFills).forEach(f => beep(/ target$/.test(f.tag) ? 'target' : / stop$/.test(f.tag) ? 'stop' : /Halt|safety/.test(f.tag) ? 'alarm' : 'entry'));
+  seenFills = fills.length;
+}
+setInterval(() => {                                          // alarms from the log: risk stops, errors, not flat at the close
+  const lines = ($('log').textContent || '').split('\n');
+  if (seenLog === null) { seenLog = lines[lines.length - 1]; return; }
+  const i = lines.lastIndexOf(seenLog), fresh = i >= 0 ? lines.slice(i + 1) : [];
+  if (fresh.some(l => /RISK STOP|STOPPED ON ERROR|not flat at the close|FLATTEN FAILED|ORDER REJECTED/.test(l))) beep('alarm');
+  seenLog = lines[lines.length - 1];
+}, 1000);
+
+// ---- trade notes and chart snapshots
+let histTrades = [], snapSeen = null;
+const snapName = k => k.replace(/[^A-Za-z0-9]/g, '_').slice(0, 120);
+async function editNote(i) {
+  const t = histTrades[i]; if (!t) return;
+  const text = prompt(`Note for ${t.piece} ${t.side} closed ${t.exit_time} (${money(t.usd)}):`, t.note || '');
+  if (text === null) return;
+  await post('/api/note', { key: t.key, text }); refreshHistory();
+}
+function snapNewTrades(trades) {                             // a chart picture of each trade that closes while the page is open
+  if (snapSeen === null) { snapSeen = new Set(trades.map(t => t.key)); return; }
+  trades.filter(t => !snapSeen.has(t.key)).forEach(t => {
+    snapSeen.add(t.key);
+    if (!chart || t.snapshot) return;
+    try { fetch('/api/snapshot', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: t.key, png: chart.takeScreenshot().toDataURL('image/png') }) }); } catch (e) { /* skip */ }
+  });
+}
+
+// ---- all accounts
+async function refreshAccounts() {
+  const a = await fetch('/api/accounts').then(r => r.json()).catch(() => null);
+  if (!a) return;
+  $('acctsAt').textContent = a.at ? `updated ${a.at} ET` : (a.error ? '' : '(test the connection to load your accounts)');
+  $('accts').html = a.rows.length ? a.rows.map(x => {
+    const st = x.status ? `${x.status.target_pct != null ? x.status.target_pct + '% of target' : ''}${x.status.room != null ? ` · room ${money(x.status.room)}` : ''}${x.status.warnings.length ? ` <span class="bad">&#9888;</span>` : ''}` : '<span style="color:var(--muted)">not set</span>';
+    return `<tr><td>${esc(x.name)}${x.bot ? ' <span class="pill good">bot</span>' : ''}</td><td>${money(x.balance)}</td><td class="${(x.day || 0) < 0 ? 'bad' : 'good'}">${x.day != null ? money(x.day) : '-'}</td><td>${st}</td><td>${x.bot ? '' : `<button style="margin:0;padding:3px 8px" onclick="useAccount(${x.id}, '${esc(x.name).replace(/'/g, '')}')">Use for bot</button>`}</td></tr>`;
+  }).join('') : `<tr><td colspan="5">${esc(a.error || 'no accounts yet')}</td></tr>`;
+}
+async function useAccount(id, name) { await post('/api/use_account', { id, name }); loaded = false; refresh(); refreshAccounts(); }
+refreshAccounts(); setInterval(refreshAccounts, 30000);
+
+// ---- daily reports
+async function refreshReports() {
+  const r = await fetch('/api/reports').then(x => x.json()).catch(() => null);
+  if (!r) return;
+  $('reports').html = r.files.length ? r.files.map(f => `<a href="/reports/${encodeURIComponent(f)}" target="_blank" style="color:var(--accent);margin-right:14px">${esc(f.replace('.md', ''))}</a>`).join('') : '<span style="color:var(--muted)">A report is saved automatically at 16:05 ET each trading day while the bot runs.</span>';
+}
+refreshReports(); setInterval(refreshReports, 60000);
+</script>
+</body>
+</html>
