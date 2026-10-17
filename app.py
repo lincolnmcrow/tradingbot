@@ -16,7 +16,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from topstep import TopstepAPI          # noqa: E402
 from engine import LiveLoop             # noqa: E402
-from extras import BACKTEST, TradeBook, news, to_csv, Notes, AccountTracker, daily_report, safe_name   # noqa: E402
+from extras import BACKTEST, TradeBook, news, to_csv, Notes, AccountTracker, daily_report, safe_name, pine_script, nq_csv_bytes   # noqa: E402
+import glob                             # noqa: E402
+import subprocess                       # noqa: E402
+import shutil                           # noqa: E402
 import base64                           # noqa: E402
 from datetime import timedelta          # noqa: E402
 
@@ -25,13 +28,24 @@ SECRETS = os.path.join(HERE, ".secrets.json")
 DEFAULTS = dict(account_id=None, account_name="", contract="MNQ", qty=1, extras="none", off=[], mode="paper",
                 daily_loss_stop=900, max_drawdown_stop=1800, max_contracts=5,
                 acct_start=50000, profit_target=3000, max_loss=2000, daily_limit=1000,
-                manual_max_per_day=0, manual_cooldown_min=0, news_pause=False, news_before_min=5, news_after_min=10)
+                manual_max_per_day=0, manual_cooldown_min=0, news_pause=False, news_before_min=5, news_after_min=10,
+                v5=dict(pdl_skip=True, fvg_bias=True, orb_3r=True, dip_any=True))
 RULES = ("acct_start", "profit_target", "max_loss", "daily_limit")   # editable while the bot runs
 PREFS = ("manual_max_per_day", "manual_cooldown_min", "news_pause", "news_before_min", "news_after_min")
 BOOK = TradeBook(os.path.join(HERE, "logs", "fills.csv"))
 NOTES = Notes(os.path.join(HERE, "logs", "notes.json"))
 SNAPS, REPORTS = os.path.join(HERE, "logs", "snapshots"), os.path.join(HERE, "logs", "reports")
 ET = ZoneInfo("America/New_York")
+# NQ data files offered for download on the page (the folder with the research data; override with CHAMPION_DATA_DIR)
+DATA_DIR = os.environ.get("CHAMPION_DATA_DIR") or os.path.join(os.path.dirname(HERE), "nq_ssmt_backtest")
+
+
+def data_files():
+    def newest(pattern):
+        found = sorted(glob.glob(os.path.join(DATA_DIR, pattern)), key=os.path.getmtime)
+        return found[-1] if found else None
+    csv_p, pq_p = newest("NQ_1m_20*_to_*.csv"), newest("nq_1m_cont_ext*.parquet")
+    return csv_p, pq_p
 
 
 def watch_accounts():
@@ -277,6 +291,85 @@ class Handler(BaseHTTPRequestHandler):
             mode = lp.runner.mode if lp and lp.runner else load(SETTINGS, DEFAULTS)["mode"]
             d["fills"] = BOOK.fills(mode)[-300:]
             return self.send(200, d)
+        if self.path == "/api/research":                    # research & statistics shown on the page (static file, no secrets)
+            try:
+                with open(os.path.join(HERE, "research.json"), "rb") as f:
+                    return self.send(200, f.read())
+            except OSError:
+                return self.send(404, {"error": "research.json missing"})
+        if self.path == "/api/data":                        # NQ data downloads
+            csv_p, pq_p = data_files()
+            files = []
+            if csv_p:
+                files.append(dict(name=os.path.basename(csv_p), url="/data/full.csv", size=os.path.getsize(csv_p),
+                                  desc="All 1-minute bars, one CSV (too big for Excel; opens in Python / R / a database)"))
+            if pq_p:
+                files.append(dict(name=os.path.basename(pq_p), url="/data/nq.parquet", size=os.path.getsize(pq_p),
+                                  desc="Same data as Parquet (what the bot's replay reads; open with pandas.read_parquet)"))
+            years, span = [], None
+            if pq_p:
+                import pandas as pd
+                dd = pd.read_parquet(pq_p, columns=["tday"])
+                years = sorted(int(y) for y in dd.tday.dt.year.unique())
+                span = f"{dd.tday.min():%Y-%m-%d} to {dd.tday.max():%Y-%m-%d}"
+            return self.send(200, dict(files=files, years=years, span=span, folder=DATA_DIR))
+        if self.path.startswith("/data/"):
+            name = self.path.split("?")[0][len("/data/"):]
+            csv_p, pq_p = data_files()
+            if name in ("full.csv", "nq.parquet"):
+                p = csv_p if name == "full.csv" else pq_p
+                if not p or not os.path.isfile(p):
+                    return self.send(404, {"error": "data file not found in " + DATA_DIR})
+                self.send_response(200)
+                self.send_header("Content-Type", "text/csv" if name == "full.csv" else "application/octet-stream")
+                self.send_header("Content-Length", str(os.path.getsize(p)))
+                self.send_header("Content-Disposition", f'attachment; filename="{os.path.basename(p)}"')
+                self.end_headers()
+                try:
+                    with open(p, "rb") as f:
+                        shutil.copyfileobj(f, self.wfile, 1 << 20)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                return
+            if pq_p and (name == "last30.csv" or (name.startswith("year/") and name.endswith(".csv") and name[5:-4].isdigit())):
+                body = nq_csv_bytes(pq_p, last_days=30) if name == "last30.csv" else nq_csv_bytes(pq_p, year=int(name[5:-4]))
+                self.send_response(200)
+                self.send_header("Content-Type", "text/csv")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Content-Disposition", f'attachment; filename="NQ_1m_{"last30days" if name == "last30.csv" else name[5:-4]}.csv"')
+                self.end_headers()
+                return self.wfile.write(body)
+            return self.send(404, {"error": "unknown data file"})
+        if self.path.startswith("/api/pine"):               # TradingView Pine Script of one day's trades
+            lp = STATE["loop"]
+            mode = lp.runner.mode if lp and lp.runner else load(SETTINGS, DEFAULTS)["mode"]
+            q = dict(p.split("=", 1) for p in self.path.split("?", 1)[1].split("&") if "=" in p) if "?" in self.path else {}
+            day = q.get("day") or datetime.now(ET).strftime("%Y-%m-%d")
+            try:
+                datetime.strptime(day, "%Y-%m-%d")
+            except ValueError:
+                return self.send(400, {"error": "bad date"})
+            if q.get("source") == "backtest":                # what the bot's rules would have traded that day (separate process)
+                cfg = load(SETTINGS, DEFAULTS)
+                pq_p = data_files()[1]
+                if not pq_p:
+                    return self.send(400, {"error": "no NQ data file found to replay"})
+                try:
+                    res = subprocess.run([sys.executable, "-W", "ignore", os.path.join(HERE, "replay_day.py"), day, pq_p,
+                                          ",".join(cfg.get("off") or []), json.dumps(cfg.get("v5") or {})],
+                                         capture_output=True, text=True, timeout=180, cwd=HERE)
+                    out = json.loads(res.stdout.strip().splitlines()[-1])
+                except Exception as e:
+                    return self.send(500, {"error": f"replay failed: {e}"})
+                if out.get("error"):
+                    return self.send(400, {"error": out["error"]})
+                tr = TradeBook.trades_from(out["fills"])
+                mode = "backtest replay"
+            else:
+                tr = BOOK.trades(mode)
+            script = pine_script(tr, day, mode)
+            n = len([t for t in tr if t["entry_time"][:10] == day or t["exit_time"][:10] == day])
+            return self.send(200, dict(script=script, day=day, mode=mode, trades=n))
         if self.path == "/api/accounts":
             return self.send(200, dict(rows=STATE.get("accounts_live", []), at=STATE.get("accounts_at"),
                                        error=STATE.get("accounts_error")))

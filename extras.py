@@ -186,6 +186,9 @@ def plan(a, extras, off=()):
     prior_up = pm in a.m_open and pm in a.m_close and a.m_close[pm] > a.m_open[pm]
     mon = d.weekday() == 0 and up5
     entry = "09:30" if hm < 930 else "traded 09:30"
+    import champion_plus as CP
+    swept = a.pdl_swept()
+    swept_why = f"the overnight range already traded below the prior-day low ({a.on_l:.2f} < {a.pd_low:.2f}) - skipped" if swept else None
 
     if d.weekday() == 0:
         add("Monday long", "yes" if up5 else "no", f"last 5 sessions {'up' if up5 else 'down'}" + (f" - buy {entry}" if up5 else ""))
@@ -203,16 +206,24 @@ def plan(a, extras, off=()):
     mk = (d.year, d.month)
     if left < 2:
         up_month = mk in a.m_open and bool(a.closes) and a.closes[-1] > a.m_open[mk]
-        add("Month-end short", "yes" if up_month else "no",
-            f"last {2 - left} of 2 month-end days, month so far {'up' if up_month else 'down'}" + (f" - short {entry}" if up_month else ""))
+        if up_month and swept:
+            add("Month-end short", "no", swept_why)
+        else:
+            add("Month-end short", "yes" if up_month else "no",
+                f"last {2 - left} of 2 month-end days, month so far {'up' if up_month else 'down'}" + (f" - short {entry}" if up_month else ""))
     else:
         add("Month-end short", "no", f"{left} sessions left in the month (needs the last 2)")
-    if a.day_in_month > 3:
+    if a.day_in_month > 3 and not CP.DIP_ANY:
         add("Small Dip", "no", f"month day {a.day_in_month} (needs day 1-3)")
     elif hm < 945:
         add("Small Dip", "wait", "decided at 09:45 (dip from the 09:30 open vs half its 30-day spread)")
     else:
-        add("Small Dip", "yes" if a.dip_ok else "no", "small dip - buy 09:50" if a.dip_ok else "dip too big")
+        add("Small Dip", "yes" if a.dip_ok else "no", ("calm open - buy 09:50" if CP.DIP_ANY else "small dip - buy 09:50") if a.dip_ok else "dip too big for a calm open")
+    if CP.BIGDIP is not None:
+        if hm < 945:
+            add("Big Dip Short", "wait", f"decided at 09:45 (dip from the 09:30 open vs {CP.BIGDIP} x its 30-day spread)")
+        else:
+            add("Big Dip Short", "yes" if a.big_dip else "no", "big opening sell-off - short 09:50" if a.big_dip else "dip not big enough")
     if len(a.ranges):
         trig = 0.35 * float(np.mean(a.ranges))
         move = (a.c959 - a.o900) if a.o900 is not None and a.c959 is not None else None
@@ -224,7 +235,21 @@ def plan(a, extras, off=()):
         else:
             add("Opening Drive", "no", f"move {move:+.1f} vs {trig:.1f} needed" if move is not None else "no 09:00-10:00 data")
     if extras != "none":
-        add("Thursday short", "yes" if d.weekday() == 3 else "no", f"short {entry}" if d.weekday() == 3 else "not a Thursday")
+        if d.weekday() == 3 and swept:
+            add("Thursday short", "no", swept_why)
+        else:
+            add("Thursday short", "yes" if d.weekday() == 3 else "no", f"short {entry}" if d.weekday() == 3 else "not a Thursday")
+    if CP.MIDTRIG is not None and len(a.ranges):
+        trig = CP.MIDTRIG * float(np.mean(a.ranges))
+        move = (a.c959 - a.o900) if a.o900 is not None and a.c959 is not None else None
+        if a.mid_done:
+            add("Midday Follow", "yes", "triggered - traded with the morning move")
+        elif hm < CP.MID_T0:
+            add("Midday Follow", "wait", f"{CP.MID_T0 // 100}:{CP.MID_T0 % 100:02d}-{CP.MID_T1 // 100}:{CP.MID_T1 % 100:02d}: first time the move since 09:00 is over {trig:.1f} pts, trade that way")
+        elif hm < CP.MID_T1:
+            add("Midday Follow", "watch", f"watching for a move over {trig:.1f} pts since 09:00 until {CP.MID_T1 // 100}:{CP.MID_T1 % 100:02d}")
+        else:
+            add("Midday Follow", "no", "the move never reached the trigger in the window")
     if extras == "all":
         on = [n for n in ("ORB retest", "First FVG", "SD fade", "AMD AM", "AMD PM") if n not in off]
         if on:
@@ -302,13 +327,18 @@ def to_csv(rows, fields):
 
 # ---------------------------------------------------------------- results by piece vs the backtest
 # Backtest per trade, 2023-10-09 .. 2026-10-07, after 0.75 pt cost (QuantConnect-logic replay, 1 contract per piece).
-BACKTEST = {
-    "Opening Drive": dict(trades=168, win=68, pts=43.9), "Monday long": dict(trades=83, win=63, pts=41.9),
-    "Turn of Month": dict(trades=55, win=69, pts=61.1), "Month-end short": dict(trades=49, win=65, pts=49.3),
-    "Small Dip": dict(trades=35, win=66, pts=47.4), "Thursday short": dict(trades=139, win=None, pts=30.9),
-    "First FVG": dict(trades=700, win=None, pts=3.0), "SD fade": dict(trades=224, win=None, pts=4.2),
-    "AMD AM": dict(trades=189, win=None, pts=2.7), "AMD PM": dict(trades=86, win=None, pts=-1.1),
-    "ORB retest": dict(trades=224, win=51, pts=12.9),
+BACKTEST_PERIOD = "2023-10-09 .. 2026-10-09, v5 rules, replay of the bot's own code, 1 contract per piece"
+BACKTEST_OLD = {   # 2015-10-01 .. 2023-10-06, same rules (shown on the Research section)
+    "Opening Drive": 13.0, "Monday long": 12.3, "Turn of Month": -3.8, "Month-end short": 8.2, "Small Dip": 7.8,
+    "Thursday short": 6.9, "First FVG": 0.1, "ORB retest": 4.3, "Big Dip Short": 6.4, "Midday Follow": 8.4,
+}
+BACKTEST = {   # 2023-10-09 .. 2026-10-09, per trade after the 0.75 pt cost (win % of trades)
+    "Opening Drive": dict(trades=183, win=67, pts=46.1), "Opening Drive re-entry": dict(trades=15, win=67, pts=19.4),
+    "Monday long": dict(trades=85, win=64, pts=44.7), "Turn of Month": dict(trades=55, win=69, pts=61.1),
+    "Month-end short": dict(trades=31, win=74, pts=69.1), "Small Dip": dict(trades=193, win=64, pts=43.3),
+    "Thursday short": dict(trades=93, win=54, pts=46.3), "Big Dip Short": dict(trades=249, win=49, pts=17.1),
+    "Midday Follow": dict(trades=263, win=55, pts=22.5), "ORB retest": dict(trades=224, win=50, pts=13.2),
+    "First FVG": dict(trades=361, win=42, pts=5.4),
 }
 
 
@@ -408,3 +438,66 @@ def session_levels(a):
     if len(orb) >= 15:
         out += [dict(name="OR high", price=max(b[3] for b in orb)), dict(name="OR low", price=min(b[4] for b in orb))]
     return out
+
+
+# ---------------------------------------------------------------- TradingView Pine Script for one day's trades
+def pine_script(trades, day, mode):
+    """Pine v5 indicator that draws the trades of one day (New York time) on a TradingView chart: a dashed line from the
+    entry to the exit, a label at each end. Prices are the fills the bot recorded."""
+    def ts(t):
+        d, h = t.split(" ")
+        y, mo, dd = d.split("-")
+        hh, mi, se = (h.split(":") + ["0", "0"])[:3]
+        return f"timestamp(tz, {int(y)}, {int(mo)}, {int(dd)}, {int(hh)}, {int(mi)}, {int(se)})"
+
+    def q(text):
+        return json.dumps(str(text))
+
+    def usd(v):
+        return ("-" if v < 0 else "+") + f"${abs(v):,.2f}"
+    day_tr = [t for t in trades if t["entry_time"][:10] == day or t["exit_time"][:10] == day]
+    day_tr.sort(key=lambda t: t["entry_time"])
+    net_pts = sum(t["pts"] * t["qty"] for t in day_tr)
+    net_usd = sum(t["usd"] for t in day_tr)
+    lines = ["//@version=5",
+             f'indicator("Champion Bot trades {day} ({mode})", overlay=true, max_labels_count=500, max_lines_count=500)',
+             f"// Generated by the Champion bot page: {len(day_tr)} closed trade(s) on {day}, net {net_pts:+.2f} pts = {usd(net_usd)}.",
+             "// Times are New York time, prices are fill prices. Put it on an NQ / MNQ chart (1m to 15m) and scroll to the day.",
+             'tz = "America/New_York"',
+             "",
+             "drawTrade(t1, p1, t2, p2, isLong, entryTxt, exitTxt, win) =>",
+             "    c = win ? color.green : color.red",
+             "    line.new(t1, p1, t2, p2, xloc=xloc.bar_time, color=c, style=line.style_dashed, width=2)",
+             "    label.new(t1, p1, entryTxt, xloc=xloc.bar_time, yloc=yloc.price, style=isLong ? label.style_label_up : label.style_label_down, color=color.blue, textcolor=color.white, size=size.small)",
+             "    label.new(t2, p2, exitTxt, xloc=xloc.bar_time, yloc=yloc.price, style=isLong ? label.style_label_down : label.style_label_up, color=c, textcolor=color.white, size=size.small)",
+             "",
+             "var bool drawn = false",
+             "if barstate.islast and not drawn",
+             "    drawn := true"]
+    if not day_tr:
+        lines.append("    // no closed trades on this day")
+    for t in day_tr:
+        is_long = t["side"] == "long"
+        win = t["usd"] > 0
+        entry_txt = f'{t["piece"]} {"BUY" if is_long else "SELL"} {t["qty"]} @ {t["entry"]:.2f}'
+        exit_txt = f'{t["reason"]} @ {t["exit"]:.2f}  {t["pts"]:+.2f} pts ({usd(t["usd"])})'
+        lines.append(f"    drawTrade({ts(t['entry_time'])}, {t['entry']:.2f}, {ts(t['exit_time'])}, {t['exit']:.2f}, {'true' if is_long else 'false'}, "
+                     f"{q(entry_txt)}, {q(exit_txt)}, {'true' if win else 'false'})")
+    return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------- NQ data export (csv built from the 1-minute parquet)
+def nq_csv_bytes(parquet_path, year=None, last_days=None):
+    import pandas as pd
+    d = pd.read_parquet(parquet_path)
+    if year:
+        d = d[d.tday.dt.year == int(year)]
+    if last_days:
+        d = d[d.tday >= d.tday.max() - pd.Timedelta(days=int(last_days))]
+    out = pd.DataFrame({"datetime_et": pd.to_datetime(d.lm.values * 60, unit="s").strftime("%Y-%m-%d %H:%M"),
+                        "trading_day": d.tday.dt.strftime("%Y-%m-%d").values,
+                        "open": (d.o.astype("float64") + d.off).round(2).values, "high": (d.h.astype("float64") + d.off).round(2).values,
+                        "low": (d.l.astype("float64") + d.off).round(2).values, "close": (d.c.astype("float64") + d.off).round(2).values,
+                        "volume": d.v.astype("int64").values, "raw_close": d.c.astype("float64").round(2).values,
+                        "roll_offset": d.off.round(2).values})
+    return out.to_csv(index=False).encode()

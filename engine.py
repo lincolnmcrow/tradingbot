@@ -66,6 +66,11 @@ class Runner:
     def __init__(self, cfg, broker, contract_id, log):
         CP.EXTRAS, CP.MICRO, CP.QTY = cfg["extras"], cfg["contract"] == "MNQ", int(cfg["qty"])
         CP.OFF = set(cfg.get("off") or [])
+        v5 = cfg.get("v5") or {}                           # the four v5 rule switches (all on unless turned off on the page)
+        CP.PDL_SKIP = bool(v5.get("pdl_skip", True))
+        CP.FVG_BIAS = 0.35 if v5.get("fvg_bias", True) else None
+        CP.ORB_R = 3.0 if v5.get("orb_3r", True) else 2.0
+        CP.DIP_ANY = bool(v5.get("dip_any", True))
         self.cfg, self.b, self.log = cfg, broker, log
         self.guard = Guard(broker, cfg, log)
         a = CP.ChampionPlus()

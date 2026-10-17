@@ -1,0 +1,72 @@
+//@version=5
+strategy("Champion 3 - Midday Follow", overlay=true, initial_capital=100000, default_qty_type=strategy.fixed, default_qty_value=1, pyramiding=0, commission_type=strategy.commission.cash_per_contract, commission_value=0.62, slippage=1, calc_on_every_tick=false)
+
+// MIDDAY FOLLOW - follow a big morning move. Use the 1-MINUTE chart of NQ1! or MNQ1!.
+// Rule: between 11:00 and 11:30 ET, the first time price is more than 0.5 x the 20-day average 09:00-16:00 range away from the
+//       09:00 open, trade in that direction. Stop 1%, no target, flat at 15:55 ET. One trade a day. Skips news days.
+// My replay 2015-10 to 2026-10, 1 contract, after costs: about +11,500 pts (925 trades). Random-direction test: p = 0.0004 and 0.0095.
+
+if barstate.isfirst and timeframe.period != "1"
+    runtime.error("Use the 1-minute chart")
+
+qty      = input.int(1, "Contracts", minval=1)
+trigMult = input.float(0.5, "Trigger (x 20-day range)", step=0.05)
+stopPct  = input.float(1.0, "Stop (%)", step=0.1) / 100
+skipNews = input.bool(true, "Skip news days")
+
+tz = "America/New_York"
+hm = hour(time, tz) * 100 + minute(time, tz)
+shifted    = time + 6 * 60 * 60 * 1000
+skey       = year(shifted, tz) * 10000 + month(shifted, tz) * 100 + dayofmonth(shifted, tz)
+newSession = skey != skey[1]
+
+var float[] ranges = array.new_float()
+var float[] vhist  = array.new_float()
+var float rthH = na
+var float rthL = na
+var float v830 = 0.0
+var bool newsDay = false
+var float o900 = na
+var bool done = false
+
+if newSession
+    if not na(rthH)
+        array.push(ranges, rthH - rthL)
+        if array.size(ranges) > 20
+            array.shift(ranges)
+    rthH := na
+    rthL := na
+    v830 := 0.0
+    newsDay := false
+    o900 := na
+    done := false
+
+if hm >= 830 and hm < 835
+    v830 += volume
+if hm == 834
+    newsDay := array.size(vhist) >= 10 and v830 >= 3 * array.avg(vhist)
+    array.push(vhist, v830)
+    if array.size(vhist) > 20
+        array.shift(vhist)
+if hm >= 900 and hm < 1600
+    rthH := na(rthH) ? high : math.max(rthH, high)
+    rthL := na(rthL) ? low : math.min(rthL, low)
+if hm == 900
+    o900 := open
+
+avgRng = array.size(ranges) >= 1 ? array.avg(ranges) : na
+
+// first bar close between 11:00 and 11:30 that is far enough from the 09:00 open -> trade that way at the next open
+if hm >= 1100 and hm < 1130 and not done and not na(avgRng) and not na(o900) and not (skipNews and newsDay)
+    if math.abs(close - o900) > trigMult * avgRng
+        done := true
+        strategy.entry("Midday", close > o900 ? strategy.long : strategy.short, qty=qty)
+
+if strategy.position_size != 0
+    strategy.exit("x Midday", "Midday", stop=strategy.position_avg_price * (strategy.position_size > 0 ? 1 - stopPct : 1 + stopPct), comment="stop")
+
+if hm == 1554
+    strategy.close_all(comment="time exit")
+    strategy.cancel_all()
+
+plot(strategy.position_size != 0 ? strategy.position_avg_price * (strategy.position_size > 0 ? 1 - stopPct : 1 + stopPct) : na, "Stop", color=color.red, style=plot.style_linebr)

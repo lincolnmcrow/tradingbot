@@ -17,12 +17,13 @@ Closing the window stops the bot; use **Stop & flatten** first so positions are 
 
 ## What it does
 
-- `champion_plus.py` - the strategy, the same file tested on QuantConnect (`EXTRAS` = none / thu / all).
+- `champion_plus.py` - the strategy (`EXTRAS` = none / thu / all; the v5 rule switches are at the top and are set from `settings.json` -> `v5`). `nq_ssmt_backtest/quantconnect/champion_plus_v5.py` is the cleaned QuantConnect version.
 - `AlgorithmImports.py` - stand-in for the QuantConnect functions the strategy uses; simulated broker; exchange calendar.
 - `topstep.py` - TopstepX API: login, accounts, front contract, 1-minute bars, orders (market / limit / stop), fills.
 - `engine.py` - feeds bars, reports fills, risk guard, quarterly contract roll, warm-up from 50 days of history.
-- `app.py` + `index.html` - the local page.
-- `replay.py` - historical check of this exact engine.
+- `app.py` + `index.html` - the local page (+ `research.json`, the research and statistics shown on it).
+- `replay.py` - historical check of this exact engine. `replay_day.py` replays one day (used by the page's backtest Pine Script).
+- The page also has a **Data** section: download the NQ 1-minute history (CSV / Parquet / by year, read from `../nq_ssmt_backtest` or `CHAMPION_DATA_DIR`) and make a TradingView Pine Script of a day's trades.
 
 Safety: refuses to start live if the account already holds the contract; daily loss stop and drawdown stop close
 everything and block new trades; never holds overnight (anything open after 15:55 is liquidated); stops and targets
@@ -30,14 +31,22 @@ rest at the exchange; your API key is stored only in `.secrets.json` (readable b
 
 ## Checked
 
-`python replay.py <nq_1m.parquet> --extras none` (needs your own NQ 1-minute data; not in this repo) (2023-10-09 .. 2026-10-07):
+`python replay.py <nq_1m.parquet> --extras all --off "AMD AM,AMD PM,SD fade" --start 2023-10-09 --end 2026-10-09` (needs your own NQ 1-minute data; not in this repo).
+Ten pieces, 1 contract each, after 0.75 pt cost per trade:
 
-| Version | Trades | Net points | 1 MNQ | 1 NQ |
-| --- | --- | --- | --- | --- |
-| Champion only | 332 | 17,262 | $34,524 | $345,240 |
-| Champion + all four add-ons | 1,769 | 26,192 | $52,384 | $523,835 |
+| Version | 2015-10 .. 2023-10 | 2023-10 .. 2026-10 | QuantConnect (1 NQ, 2023-26) |
+| --- | --- | --- | --- |
+| Original 8 pieces | 7,358 pts | 29,760 pts | about 25,900 pts |
+| v5 (current, all rules on) | 27,135 pts | 46,311 pts (about $92,600 on 1 MNQ) | $821,474 net (about 41,400 pts) |
 
-Every day flat at the close. The research and QuantConnect results were 16,955-17,191 and 25,922 points.
+Every day flat at the close. v5 = the original plus: skip Thursday / Month-end short when the overnight range already traded
+below the prior-day low; First FVG only with the 09:00 move; ORB retest 3R target; Small Dip on any calm open (1.5% stop);
+two new pieces, Big Dip Short and Midday Follow. Each rule can be switched back to the old one under Bot settings
+(all switched off reproduces the original 29,760 pts exactly).
+
+The page has a **Research** section with every statistic behind this: per-piece results in two periods, walk-forward and
+random-shuffle tests, Monte Carlo, slippage, Topstep Combine pass rates, and the ideas that were tested and rejected
+(data in `research.json`). Everything was tuned on the same history, so expect less than the backtest; paper trade first.
 
 Paper mode and Live on a Practice account have been run against TopstepX on Mac. The Windows port is untested by its author.
 Run paper mode first, then live on a Practice account, and watch the log during the first sessions.

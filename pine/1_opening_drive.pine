@@ -1,0 +1,155 @@
+//@version=5
+strategy("Champion 1 - Opening Drive (+ re-entry)", overlay=true, initial_capital=100000, default_qty_type=strategy.fixed, default_qty_value=1, pyramiding=0, commission_type=strategy.commission.cash_per_contract, commission_value=0.62, slippage=1, calc_on_every_tick=false)
+
+// OPENING DRIVE - the bot's best piece. Use the 1-MINUTE chart of NQ1! or MNQ1! (CME futures, overnight session on).
+// Rule: at 10:00 ET, if the 09:00-10:00 move is bigger than 0.35 x the 20-day average 09:00-16:00 range, trade that way.
+//       Also trades when the 09:59 close is 0.2 x range past the overnight (18:00-09:29) high or low.
+//       Stop = the first-hour extreme, never more than 0.6 x range from the fill. Trail 0.4 x range once 0.5 x range in profit.
+//       One re-entry per day: after the trade is stopped out before 15:30, enter again on a new day extreme. Flat at 15:55 ET.
+//       Skips news days (08:30-08:34 volume 3x its 20-day average).
+// My replay 2015-10 to 2026-10, 1 contract, after costs: about +14,000 pts (614 trades) + about +900 pts from the re-entry.
+// TradingView will not match exactly (different data and fills). 1-minute history on TradingView is limited: use Deep Backtesting for long tests.
+
+if barstate.isfirst and timeframe.period != "1"
+    runtime.error("Use the 1-minute chart")
+
+qty       = input.int(1, "Contracts", minval=1)
+driveMult = input.float(0.35, "Drive trigger (x 20-day range)", step=0.05)
+onMult    = input.float(0.20, "Overnight-break trigger (x range)", step=0.05)
+capMult   = input.float(0.60, "Stop cap (x range)", step=0.05)
+armMult   = input.float(0.50, "Trail arms after (x range)", step=0.05)
+trailMult = input.float(0.40, "Trail distance (x range)", step=0.05)
+useRe     = input.bool(true, "One re-entry per day")
+skipNews  = input.bool(true, "Skip news days")
+
+tz   = "America/New_York"
+tick = syminfo.mintick
+hm   = hour(time, tz) * 100 + minute(time, tz)
+shifted    = time + 6 * 60 * 60 * 1000
+skey       = year(shifted, tz) * 10000 + month(shifted, tz) * 100 + dayofmonth(shifted, tz)
+newSession = skey != skey[1]
+
+var float[] ranges = array.new_float()
+var float[] vhist  = array.new_float()
+var float rthH = na
+var float rthL = na
+var float v830 = 0.0
+var bool newsDay = false
+var float o900 = na
+var float fhH = na
+var float fhL = na
+var int fhN = 0
+var float onH = na
+var float onL = na
+var bool traded = false
+var int odSide = 0
+var int reState = 0
+var float reLo = na
+var float reHi = na
+var float stopPx = na
+var float bestPx = na
+var float entPx = na
+var string tid = ""
+
+if newSession
+    if not na(rthH)
+        array.push(ranges, rthH - rthL)
+        if array.size(ranges) > 20
+            array.shift(ranges)
+    rthH := na
+    rthL := na
+    v830 := 0.0
+    newsDay := false
+    o900 := na
+    fhH := na
+    fhL := na
+    fhN := 0
+    onH := na
+    onL := na
+    traded := false
+    odSide := 0
+    reState := 0
+    reLo := na
+    reHi := na
+
+if hm >= 1800 or hm < 930
+    onH := na(onH) ? high : math.max(onH, high)
+    onL := na(onL) ? low : math.min(onL, low)
+if hm >= 830 and hm < 835
+    v830 += volume
+if hm == 834
+    newsDay := array.size(vhist) >= 10 and v830 >= 3 * array.avg(vhist)
+    array.push(vhist, v830)
+    if array.size(vhist) > 20
+        array.shift(vhist)
+if hm >= 900 and hm < 1600
+    rthH := na(rthH) ? high : math.max(rthH, high)
+    rthL := na(rthL) ? low : math.min(rthL, low)
+if hm == 900
+    o900 := open
+if hm >= 900 and hm < 1000
+    fhH := na(fhH) ? high : math.max(fhH, high)
+    fhL := na(fhL) ? low : math.min(fhL, low)
+    fhN += 1
+
+avgRng = array.size(ranges) >= 1 ? array.avg(ranges) : na
+
+// entry decision on the close of the 09:59 bar -> fills at the 10:00 open
+if hm == 959 and fhN >= 55 and not na(avgRng) and not na(o900) and not traded and not (skipNews and newsDay)
+    mv = close - o900
+    side = 0
+    if math.abs(mv) > driveMult * avgRng
+        side := mv > 0 ? 1 : -1
+    else if close > onH + onMult * avgRng
+        side := 1
+    else if close < onL - onMult * avgRng
+        side := -1
+    if side != 0
+        traded := true
+        odSide := side
+        strategy.entry("OD", side > 0 ? strategy.long : strategy.short, qty=qty)
+
+// manage the open trade: stop (capped), then a trailing stop
+opened = strategy.position_size != 0 and strategy.position_size[1] == 0
+if strategy.position_size != 0
+    pside = strategy.position_size > 0 ? 1 : -1
+    if opened
+        tid := strategy.opentrades.entry_id(0)
+        entPx := strategy.position_avg_price
+        capD = capMult * avgRng
+        base = tid == "OD" ? (pside > 0 ? fhL - tick : fhH + tick) : (pside > 0 ? reLo - tick : reHi + tick)
+        if pside * (entPx - base) > capD or (tid != "OD" and pside * (entPx - base) <= 0)
+            base := entPx - pside * capD
+        stopPx := base
+        bestPx := entPx
+        if tid == "OD-RE"
+            reState := 2
+    else
+        bestPx := pside > 0 ? math.max(bestPx, high) : math.min(bestPx, low)
+        if pside * (bestPx - entPx) >= armMult * avgRng
+            ts = math.round((bestPx - pside * trailMult * avgRng) / tick) * tick
+            if pside * (ts - stopPx) > 0
+                stopPx := ts
+    strategy.exit("x " + tid, tid, stop=stopPx, comment="stop")
+
+// re-entry: the first trade was stopped out (not the 15:55 exit) before 15:30
+nClosed = strategy.closedtrades
+if nClosed > nClosed[1] and useRe and reState == 0 and traded and hm < 1530 and not (skipNews and newsDay)
+    if strategy.closedtrades.entry_id(nClosed - 1) == "OD" and strategy.closedtrades.exit_comment(nClosed - 1) != "time exit"
+        reState := 1
+        reLo := low
+        reHi := high
+        strategy.entry("OD-RE", odSide > 0 ? strategy.long : strategy.short, qty=qty, stop=(odSide > 0 ? rthH + tick : rthL - tick))
+if reState == 1
+    reLo := math.min(reLo, low)
+    reHi := math.max(reHi, high)
+if hm == 1529 and reState == 1
+    strategy.cancel("OD-RE")
+    reState := 2
+
+// flat at 15:55 ET
+if hm == 1554
+    strategy.close_all(comment="time exit")
+    strategy.cancel_all()
+
+plot(strategy.position_size != 0 ? stopPx : na, "Stop", color=color.red, style=plot.style_linebr)
